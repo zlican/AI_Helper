@@ -4,9 +4,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  text-align: center;
   height: 100%;
-  padding: 1rem;
+  width: 100%;
 }
 
 .App-logo {
@@ -27,4 +26,22 @@ code {
   background: rgba(148, 163, 184, 0.5);
   border-radius: 0.25rem;
   padding: 0.2rem 0.5rem;
+}
+
+/* 自定义滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.7);
 }
