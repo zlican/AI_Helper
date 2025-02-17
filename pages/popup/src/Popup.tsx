@@ -3,7 +3,7 @@ import { useStorage, withErrorBoundary, withSuspense } from '@extension/shared';
 import { exampleThemeStorage } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { ToggleButton } from '@extension/ui';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // 定义AI提供商类型
 type AIProvider = {
@@ -33,6 +33,8 @@ const Popup = () => {
   const [selectedProvider, setSelectedProvider] = useState(defaultProviders[0]);
   const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // 从 storage 加载 API key
   useEffect(() => {
@@ -53,6 +55,15 @@ const Popup = () => {
 
     setMessages(prev => [...prev, { type: 'user', content: inputText }]);
     setIsLoading(true);
+    setCurrentStreamingMessage('');
+
+    // 如果存在之前的请求，取消它
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController();
 
     try {
       const response = await fetch(selectedProvider.baseUrl, {
@@ -60,38 +71,75 @@ const Popup = () => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
+          Accept: 'text/event-stream',
         },
         body: JSON.stringify({
           model: 'deepseek-chat',
           messages: [{ role: 'user', content: inputText }],
           temperature: 0.7,
           max_tokens: 2000,
+          stream: true, // 启用流式响应
         }),
+        signal: abortControllerRef.current.signal,
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-      if (data.choices && data.choices[0]) {
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('Response body is null');
+      }
+
+      let streamedContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices[0]?.delta?.content || '';
+              streamedContent += content;
+              setCurrentStreamingMessage(streamedContent);
+            } catch (e) {
+              console.error('解析流式数据错误:', e);
+            }
+          }
+        }
+      }
+
+      // 流式响应完成后，添加完整消息
+      setMessages(prev => [...prev, { type: 'ai', content: streamedContent }]);
+      setCurrentStreamingMessage('');
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('请求被取消');
+      } else {
+        console.error('API 调用错误:', error);
         setMessages(prev => [
           ...prev,
           {
             type: 'ai',
-            content: data.choices[0].message.content,
+            content: '抱歉，发生了错误，请稍后重试。',
           },
         ]);
       }
-    } catch (error) {
-      console.error('API 调用错误:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'ai',
-          content: '抱歉，发生了错误，请稍后重试。',
-        },
-      ]);
     } finally {
       setIsLoading(false);
       setInputText('');
+      abortControllerRef.current = null;
     }
   };
 
@@ -193,7 +241,21 @@ const Popup = () => {
             </div>
           </div>
         ))}
-        {isLoading && (
+
+        {/* 流式响应显示区域 */}
+        {currentStreamingMessage && (
+          <div className="mb-4 text-left">
+            <div
+              className={`inline-block max-w-[80%] rounded-lg px-4 py-2 ${
+                isLight ? 'bg-gray-200 text-gray-900' : 'bg-gray-700 text-gray-100'
+              }`}>
+              {currentStreamingMessage}
+              <span className="animate-pulse">▊</span>
+            </div>
+          </div>
+        )}
+
+        {isLoading && !currentStreamingMessage && (
           <div className="flex justify-center items-center py-2">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-500"></div>
           </div>
