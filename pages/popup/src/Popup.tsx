@@ -100,23 +100,45 @@ const defaultProviders: AIProvider[] = [
   },
 ];
 
+// 在组件顶部添加分类函数
+const categorizeProviders = (providers: AIProvider[]) => {
+  return providers.reduce(
+    (acc, provider) => {
+      if (provider.id.includes('r1')) {
+        acc.reasoning.push(provider);
+      } else {
+        acc.chat.push(provider);
+      }
+      return acc;
+    },
+    { reasoning: [] as AIProvider[], chat: [] as AIProvider[] },
+  );
+};
+
 const Popup = () => {
   const theme = useStorage(exampleThemeStorage);
   const isLight = theme === 'light';
   const [showSettings, setShowSettings] = useState(false);
   const [messages, setMessages] = useState<Array<{ type: 'user' | 'ai'; content: string }>>([]);
   const [inputText, setInputText] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState(defaultProviders[0]);
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider>(defaultProviders[0]);
   const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const categorizedProviders = categorizeProviders(defaultProviders);
 
-  // 从 storage 加载所有 API keys
+  // 从 storage 加载所有配置
   useEffect(() => {
-    chrome.storage.local.get(['providerApiKeys'], result => {
+    chrome.storage.local.get(['providerApiKeys', 'selectedProviderId'], result => {
       if (result.providerApiKeys) {
         setProviderApiKeys(result.providerApiKeys);
+      }
+      if (result.selectedProviderId) {
+        const savedProvider = defaultProviders.find(p => p.id === result.selectedProviderId);
+        if (savedProvider) {
+          setSelectedProvider(savedProvider);
+        }
       }
     });
   }, []);
@@ -149,6 +171,22 @@ const Popup = () => {
     setMessages([]);
     setCurrentStreamingMessage('');
     chrome.storage.local.remove(['chatHistory']);
+  };
+
+  // 修改选择提供商的处理函数
+  const handleProviderChange = (provider: AIProvider) => {
+    setSelectedProvider(provider);
+    // 保存选中的提供商 ID
+    chrome.storage.local.set({ selectedProviderId: provider.id });
+  };
+
+  // 添加主题切换函数
+  const toggleTheme = () => {
+    if (theme === 'light') {
+      exampleThemeStorage.set('dark');
+    } else {
+      exampleThemeStorage.set('light');
+    }
   };
 
   const handleSend = async () => {
@@ -292,25 +330,55 @@ const Popup = () => {
     }
   };
 
-  // 对提供商进行分类
-  const categorizedProviders = {
-    reasoning: defaultProviders.filter(p => p.id.includes('r1')),
-    chat: defaultProviders.filter(p => !p.id.includes('r1')),
-  };
-
   return (
-    <div className={`w-[360px] h-[520px] ${isLight ? 'bg-slate-50' : 'bg-gray-800'}`}>
-      {/* 顶部导航栏 */}
+    <div className="min-h-[520px] h-screen flex flex-col bg-white dark:bg-gray-900">
+      {/* 导航栏 - 更新夜间模式颜色 */}
       <div
-        className={`h-16 px-4 flex items-center justify-between border-b ${
-          isLight ? 'border-gray-200' : 'border-gray-700'
+        className={`h-14 shrink-0 px-4 flex justify-between items-center ${
+          isLight ? 'bg-white shadow-sm' : 'bg-gray-800'
         }`}>
         <div className="flex items-center gap-2">
-          <ToggleButton />
+          <h1
+            className={`text-lg font-medium ${
+              isLight ? 'text-gray-700' : 'text-blue-400' // 夜间模式改为浅蓝色
+            }`}>
+            AI Chat
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* 主题切换按钮 */}
           <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`p-2 rounded-lg ${isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-700'} transition-colors`}
-            title="设置">
+            onClick={toggleTheme}
+            className={`p-2 rounded-lg transition-colors ${
+              isLight ? 'hover:bg-gray-100 text-amber-500' : 'hover:bg-gray-700/50 text-blue-400' // 夜间模式统一为浅蓝色
+            }`}>
+            {isLight ? (
+              <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                />
+              </svg>
+            )}
+          </button>
+
+          {/* 设置按钮 - 更新夜间模式颜色 */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className={`p-2 rounded-lg transition-colors ${
+              isLight ? 'hover:bg-gray-100 text-gray-700' : 'hover:bg-gray-700/50 text-blue-400' // 夜间模式统一为浅蓝色
+            }`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 strokeLinecap="round"
@@ -322,90 +390,68 @@ const Popup = () => {
             </svg>
           </button>
         </div>
-
-        {/* 添加清除按钮 */}
-        <button
-          onClick={handleClearChat}
-          className={`p-2 rounded-lg ${isLight ? 'hover:bg-gray-100' : 'hover:bg-gray-700'} transition-colors`}
-          title="清除对话">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-        </button>
       </div>
 
-      {/* 设置面板 */}
+      {/* 设置面板 - 简化模型选择 */}
       {showSettings && (
-        <div
-          className={`absolute top-16 right-4 w-72 p-4 rounded-lg shadow-lg ${isLight ? 'bg-white' : 'bg-gray-700'}`}>
-          <h2 className={`text-lg font-semibold mb-4 ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>设置</h2>
-
-          {/* 推理模型组 */}
-          <div className="mb-4">
-            <h3 className={`text-sm font-medium mb-2 ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>推理模型</h3>
-            <div className="space-y-4">
-              {categorizedProviders.reasoning.map(provider => (
-                <div key={provider.id} className="space-y-2">
-                  <div className="flex items-center">
-                    <input
-                      type="radio"
-                      id={provider.id}
-                      name="ai-provider"
-                      checked={selectedProvider.id === provider.id}
-                      onChange={() => setSelectedProvider(provider)}
-                      className="mr-2"
-                    />
-                    <label htmlFor={provider.id} className={`text-sm ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
-                      {provider.name}
-                    </label>
-                  </div>
-                  <input
-                    type="password"
-                    value={providerApiKeys[provider.id] || ''}
-                    onChange={e => handleSaveApiKey(provider.id, e.target.value)}
-                    placeholder={`输入 ${provider.name} API Key`}
-                    className={`w-full p-2 text-sm rounded border ${
-                      isLight ? 'border-gray-200' : 'border-gray-600'
-                    } focus:outline-none focus:ring-1 focus:ring-blue-500`}
-                  />
-                </div>
-              ))}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          <div
+            className={`w-[320px] rounded-2xl shadow-xl ${
+              isLight ? 'bg-white' : 'bg-gray-800'
+            } p-6 transform transition-all duration-200 settings-scroll max-h-[480px] overflow-y-auto`}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className={`text-lg font-medium ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>设置</h2>
+              <button
+                onClick={() => setShowSettings(false)}
+                className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors`}>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-          </div>
 
-          {/* 对话模型组 */}
-          <div>
-            <h3 className={`text-sm font-medium mb-2 ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>对话模型</h3>
-            <div className="space-y-4">
-              {categorizedProviders.chat.map(provider => (
-                <div key={provider.id} className="space-y-2">
-                  <div className="flex items-center">
+            {/* 简化的模型选择列表 */}
+            <div className="space-y-3">
+              {defaultProviders.map(provider => (
+                <div
+                  key={provider.id}
+                  className={`relative rounded-xl p-4 transition-all duration-200 ${
+                    selectedProvider.id === provider.id
+                      ? isLight
+                        ? 'bg-blue-50 ring-2 ring-blue-500'
+                        : 'bg-blue-900/20 ring-2 ring-blue-400'
+                      : isLight
+                        ? 'hover:bg-gray-50'
+                        : 'hover:bg-gray-700/50'
+                  }`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 flex-1">
+                      <input
+                        type="radio"
+                        id={provider.id}
+                        name="ai-provider"
+                        checked={selectedProvider.id === provider.id}
+                        onChange={() => handleProviderChange(provider)}
+                        className="w-4 h-4 text-blue-500 focus:ring-blue-400"
+                      />
+                      <label
+                        htmlFor={provider.id}
+                        className={`text-sm font-medium ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>
+                        {provider.name}
+                      </label>
+                    </div>
                     <input
-                      type="radio"
-                      id={provider.id}
-                      name="ai-provider"
-                      checked={selectedProvider.id === provider.id}
-                      onChange={() => setSelectedProvider(provider)}
-                      className="mr-2"
+                      type="password"
+                      value={providerApiKeys[provider.id] || ''}
+                      onChange={e => handleSaveApiKey(provider.id, e.target.value)}
+                      placeholder="API Key"
+                      className={`w-32 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
+                        isLight
+                          ? 'border-gray-200 focus:border-blue-500'
+                          : 'border-gray-600 bg-gray-700/50 focus:border-blue-400'
+                      } focus:outline-none focus:ring-1 focus:ring-blue-500/50`}
                     />
-                    <label htmlFor={provider.id} className={`text-sm ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
-                      {provider.name}
-                    </label>
                   </div>
-                  <input
-                    type="password"
-                    value={providerApiKeys[provider.id] || ''}
-                    onChange={e => handleSaveApiKey(provider.id, e.target.value)}
-                    placeholder={`输入 ${provider.name} API Key`}
-                    className={`w-full p-2 text-sm rounded border ${
-                      isLight ? 'border-gray-200' : 'border-gray-600'
-                    } focus:outline-none focus:ring-1 focus:ring-blue-500`}
-                  />
                 </div>
               ))}
             </div>
@@ -413,63 +459,125 @@ const Popup = () => {
         </div>
       )}
 
-      {/* 聊天区域 */}
-      <div className="h-[calc(100%-8rem)] overflow-y-auto p-4">
-        {messages.map((message, index) => (
-          <div key={index} className={`mb-4 ${message.type === 'user' ? 'text-right' : 'text-left'}`}>
+      {/* 聊天区域 - 更新背景色 */}
+      <div className="flex-1 overflow-y-auto">
+        <div
+          className={`h-full px-4 py-4 space-y-4 ${
+            isLight ? 'bg-white' : 'bg-gray-900' // 白天模式使用纯白背景
+          }`}>
+          {messages.map((message, index) => (
             <div
-              className={`inline-block max-w-[80%] rounded-lg px-4 py-2 ${
-                message.type === 'user'
-                  ? isLight
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-blue-600 text-white'
-                  : isLight
-                    ? 'bg-gray-200 text-gray-900'
-                    : 'bg-gray-700 text-gray-100'
-              }`}>
-              {message.content}
+              key={index}
+              className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+              {message.type === 'ai' && (
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/30 text-blue-400'
+                  }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                </div>
+              )}
+              <div
+                className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                  message.type === 'user'
+                    ? 'bg-blue-500 text-white rounded-br-none'
+                    : isLight
+                      ? 'bg-gray-200 text-gray-900 rounded-bl-none'
+                      : 'bg-gray-700 text-gray-100 rounded-bl-none'
+                }`}>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+              </div>
+              {message.type === 'user' && (
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/30 text-blue-400'
+                  }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
+                  </svg>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          ))}
 
-        {/* 流式响应显示区域 */}
-        {currentStreamingMessage && (
-          <div className="mb-4 text-left">
-            <div
-              className={`inline-block max-w-[80%] rounded-lg px-4 py-2 ${
-                isLight ? 'bg-gray-200 text-gray-900' : 'bg-gray-700 text-gray-100'
-              }`}>
-              {currentStreamingMessage}
-              <span className="animate-pulse">▊</span>
+          {/* 流式响应显示 */}
+          {currentStreamingMessage && (
+            <div className="flex justify-start items-end gap-2">
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/30 text-blue-400'
+                }`}>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
+              <div
+                className={`max-w-[75%] rounded-2xl px-4 py-2 rounded-bl-none ${
+                  isLight ? 'bg-gray-200 text-gray-900' : 'bg-gray-700 text-gray-100'
+                }`}>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {currentStreamingMessage}
+                  <span className="inline-block w-1 h-4 ml-0.5 align-middle animate-pulse bg-current opacity-75"></span>
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {isLoading && !currentStreamingMessage && (
-          <div className="flex justify-center items-center py-2">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-500"></div>
-          </div>
-        )}
+          {/* 加载动画 */}
+          {isLoading && !currentStreamingMessage && (
+            <div className="flex justify-center items-center py-4">
+              <div className="relative w-8 h-8">
+                <div className="absolute top-0 left-0 w-full h-full border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 输入区域 */}
-      <div className={`h-16 px-4 py-2 border-t ${isLight ? 'border-gray-200' : 'border-gray-700'}`}>
-        <div className="flex items-center gap-2">
+      {/* 输入区域 - 固定在底部 */}
+      <div
+        className={`shrink-0 border-t ${
+          isLight ? 'border-gray-200/80 bg-white' : 'border-gray-700/80 bg-gray-800' // 修改背景色
+        }`}>
+        <div
+          className={`flex items-center gap-3 p-4 ${
+            isLight ? 'bg-white' : 'bg-gray-800' // 内部容器也设置对应的背景色
+          }`}>
           <input
             type="text"
             value={inputText}
             onChange={e => setInputText(e.target.value)}
             onKeyPress={e => e.key === 'Enter' && handleSend()}
-            placeholder="Type your message..."
-            className={`flex-1 p-2 rounded-lg border ${
-              isLight ? 'border-gray-200 bg-white text-gray-900' : 'border-gray-600 bg-gray-700 text-gray-100'
-            } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+            placeholder="输入消息..."
+            className={`flex-1 px-4 py-2 rounded-xl border text-sm transition-all ${
+              isLight
+                ? 'border-gray-200 bg-white text-gray-900 focus:border-blue-500'
+                : 'border-gray-600 bg-gray-700/50 text-gray-100 focus:border-blue-400'
+            } focus:outline-none focus:ring-2 focus:ring-blue-500/40`}
           />
           <button
             onClick={handleSend}
-            className={`p-2 rounded-lg ${
-              isLight ? 'bg-blue-500' : 'bg-blue-600'
-            } text-white hover:opacity-90 transition-opacity`}>
+            disabled={!inputText.trim() || isLoading}
+            className={`p-2 rounded-xl ${
+              isLight ? 'bg-blue-500 hover:bg-blue-600' : 'bg-blue-600 hover:bg-blue-700'
+            } text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
