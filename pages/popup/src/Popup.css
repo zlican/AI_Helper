@@ -110,3 +110,18 @@ code {
 .hover-shadow:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+}
+
+.animate-fade-out {
+  animation: fadeOut 0.7s ease-out forwards;
+}

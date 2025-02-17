@@ -127,6 +127,7 @@ const Popup = () => {
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const categorizedProviders = categorizeProviders(defaultProviders);
+  const [showCopyTip, setShowCopyTip] = useState(false);
 
   // 从 storage 加载所有配置
   useEffect(() => {
@@ -187,6 +188,21 @@ const Popup = () => {
     } else {
       exampleThemeStorage.set('light');
     }
+  };
+
+  // 修改复制函数
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setShowCopyTip(true);
+        setTimeout(() => {
+          setShowCopyTip(false);
+        }, 700);
+      })
+      .catch(err => {
+        console.error('复制失败:', err);
+      });
   };
 
   const handleSend = async () => {
@@ -510,18 +526,47 @@ const Popup = () => {
               key={index}
               className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
               {message.type === 'ai' && (
-                <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/30 text-blue-400'
-                  }`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                    />
-                  </svg>
+                <div className="flex flex-col items-center gap-1 relative">
+                  {/* 复制成功提示 */}
+                  {showCopyTip && (
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md whitespace-nowrap animate-fade-out">
+                      复制成功
+                    </div>
+                  )}
+                  {/* 复制按钮 */}
+                  <button
+                    onClick={() => copyToClipboard(message.content)}
+                    className={`w-5 h-5 rounded-md flex items-center justify-center opacity-60 hover:opacity-100 transition-opacity ${
+                      isLight ? 'text-blue-600' : 'text-blue-400'
+                    }`}
+                    title="复制回答">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                      />
+                    </svg>
+                  </button>
+                  {/* AI 头像 - 添加点击复制功能 */}
+                  <button
+                    onClick={() => copyToClipboard(message.content)}
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer ${
+                      isLight
+                        ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                        : 'bg-blue-900/30 text-blue-400 hover:bg-blue-800/40'
+                    }`}
+                    title="复制回答">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </button>
                 </div>
               )}
               <div
