@@ -440,7 +440,7 @@ const Popup = () => {
               <button
                 onClick={() => setShowSettings(false)}
                 className={`p-2 rounded-full transition-colors ${
-                  isLight ? 'hover:bg-gray-100 text-gray-600' : 'hover:bg-gray-700 text-gray-200' // 修改为浅色文字
+                  isLight ? 'hover:bg-gray-100 text-gray-600' : 'hover:bg-gray-700 text-gray-200'
                 }`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -485,7 +485,7 @@ const Popup = () => {
                       value={providerApiKeys[provider.id] || ''}
                       onChange={e => handleSaveApiKey(provider.id, e.target.value)}
                       placeholder="API Key"
-                      className={`w-40 text-sm px-3 py-1.5 rounded-lg border transition-colors mr-0.5 ${
+                      className={`w-[90px] text-sm px-3 py-1.5 rounded-lg border transition-colors mr-0.5 overflow-hidden ${
                         isLight
                           ? 'border-gray-200 focus:border-blue-500'
                           : 'border-gray-600 bg-gray-700/50 focus:border-blue-400'
@@ -500,7 +500,7 @@ const Popup = () => {
       )}
 
       {/* 聊天区域 - 更新背景色 */}
-      <div className="flex-1 overflow-y-auto">
+      <div className={`flex-1 overflow-y-auto ${isLight ? 'bg-white' : 'bg-gray-900'}`}>
         <div
           className={`h-full px-4 py-4 space-y-4 ${
             isLight ? 'bg-white' : 'bg-gray-900' // 白天模式使用纯白背景
