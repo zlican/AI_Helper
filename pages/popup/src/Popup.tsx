@@ -173,11 +173,11 @@ const Popup = () => {
     chrome.storage.local.remove(['chatHistory']);
   };
 
-  // 修改选择提供商的处理函数
+  // 修改选择提供商的处理函数，添加自动关闭设置面板
   const handleProviderChange = (provider: AIProvider) => {
     setSelectedProvider(provider);
-    // 保存选中的提供商 ID
     chrome.storage.local.set({ selectedProviderId: provider.id });
+    setShowSettings(false); // 选择后自动关闭设置面板
   };
 
   // 添加主题切换函数
@@ -334,9 +334,10 @@ const Popup = () => {
     <div className="min-h-[520px] h-screen flex flex-col bg-white dark:bg-gray-900">
       {/* 导航栏 - 更新夜间模式颜色 */}
       <div
-        className={`h-14 shrink-0 px-4 flex justify-between items-center ${
+        className={`h-14 shrink-0 px-4 flex justify-between items-center cursor-pointer ${
           isLight ? 'bg-white shadow-sm' : 'bg-gray-800'
-        }`}>
+        }`}
+        onClick={() => setShowSettings(true)}>
         <div className="flex items-center gap-2">
           <h1
             className={`text-lg font-medium ${
@@ -345,12 +346,44 @@ const Popup = () => {
             AI Chat
           </h1>
         </div>
+
+        {/* 修改模型名称显示的颜色 */}
+        <span
+          className={`text-sm font-medium ${
+            isLight ? 'text-gray-600' : 'text-blue-400' // 改为浅蓝色
+          }`}>
+          {selectedProvider.name}
+        </span>
+
         <div className="flex items-center gap-2">
+          {/* 清除历史按钮 */}
+          <button
+            onClick={e => {
+              e.stopPropagation(); // 阻止事件冒泡，避免触发设置面板
+              handleClearChat();
+            }}
+            className={`p-2 rounded-lg transition-colors ${
+              isLight ? 'hover:bg-gray-100 text-gray-500' : 'hover:bg-gray-700/50 text-blue-400'
+            }`}
+            title="清除聊天记录">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+
           {/* 主题切换按钮 */}
           <button
-            onClick={toggleTheme}
+            onClick={e => {
+              e.stopPropagation(); // 阻止事件冒泡，避免触发设置面板
+              toggleTheme();
+            }}
             className={`p-2 rounded-lg transition-colors ${
-              isLight ? 'hover:bg-gray-100 text-amber-500' : 'hover:bg-gray-700/50 text-blue-400' // 夜间模式统一为浅蓝色
+              isLight ? 'hover:bg-gray-100 text-amber-500' : 'hover:bg-gray-700/50 text-blue-400'
             }`}>
             {isLight ? (
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -373,11 +406,14 @@ const Popup = () => {
             )}
           </button>
 
-          {/* 设置按钮 - 更新夜间模式颜色 */}
+          {/* 设置按钮 */}
           <button
-            onClick={() => setShowSettings(true)}
+            onClick={e => {
+              e.stopPropagation(); // 阻止事件冒泡，避免触发设置面板
+              setShowSettings(true);
+            }}
             className={`p-2 rounded-lg transition-colors ${
-              isLight ? 'hover:bg-gray-100 text-gray-700' : 'hover:bg-gray-700/50 text-blue-400' // 夜间模式统一为浅蓝色
+              isLight ? 'hover:bg-gray-100 text-gray-700' : 'hover:bg-gray-700/50 text-blue-400'
             }`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -403,7 +439,9 @@ const Popup = () => {
               <h2 className={`text-lg font-medium ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>设置</h2>
               <button
                 onClick={() => setShowSettings(false)}
-                className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors`}>
+                className={`p-2 rounded-full transition-colors ${
+                  isLight ? 'hover:bg-gray-100 text-gray-600' : 'hover:bg-gray-700 text-gray-200' // 修改为浅色文字
+                }`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -415,17 +453,17 @@ const Popup = () => {
               {defaultProviders.map(provider => (
                 <div
                   key={provider.id}
-                  className={`relative rounded-xl p-4 transition-all duration-200 ${
+                  className={`relative rounded-xl p-2 pl-1 transition-all duration-200 ${
                     selectedProvider.id === provider.id
                       ? isLight
                         ? 'bg-blue-50 ring-2 ring-blue-500'
                         : 'bg-blue-900/20 ring-2 ring-blue-400'
                       : isLight
-                        ? 'hover:bg-gray-50'
-                        : 'hover:bg-gray-700/50'
+                        ? 'hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5'
+                        : 'hover:bg-gray-700/50 hover:shadow-md dark:hover:shadow-gray-700/40 hover:-translate-y-0.5'
                   }`}>
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 flex-1">
+                  <div className="flex items-center justify-between w-full gap-2 px-1">
+                    <div className="flex items-center gap-2 min-w-[120px]">
                       <input
                         type="radio"
                         id={provider.id}
@@ -436,7 +474,9 @@ const Popup = () => {
                       />
                       <label
                         htmlFor={provider.id}
-                        className={`text-sm font-medium ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>
+                        className={`text-sm font-medium whitespace-nowrap ${
+                          isLight ? 'text-gray-900' : 'text-gray-100'
+                        }`}>
                         {provider.name}
                       </label>
                     </div>
@@ -445,7 +485,7 @@ const Popup = () => {
                       value={providerApiKeys[provider.id] || ''}
                       onChange={e => handleSaveApiKey(provider.id, e.target.value)}
                       placeholder="API Key"
-                      className={`w-32 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
+                      className={`w-40 text-sm px-3 py-1.5 rounded-lg border transition-colors mr-0.5 ${
                         isLight
                           ? 'border-gray-200 focus:border-blue-500'
                           : 'border-gray-600 bg-gray-700/50 focus:border-blue-400'
