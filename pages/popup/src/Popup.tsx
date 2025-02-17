@@ -11,17 +11,48 @@ type AIProvider = {
   name: string;
   apiKey: string;
   baseUrl: string;
+  model: string;
+  systemPrompt?: string;
+  modelConfig?: {
+    temperature: number;
+    top_p: number;
+    max_tokens: number;
+    presence_penalty?: number;
+    frequency_penalty?: number;
+    stop?: string[];
+    tools?: any[];
+  };
 };
 
 const defaultProviders: AIProvider[] = [
   {
-    id: 'deepseek',
-    name: 'DeepSeek R1',
+    id: 'deepseek-r1',
+    name: 'DeepSeek R1 (推理)',
     apiKey: '',
     baseUrl: 'https://api.deepseek.com/v1/chat/completions',
+    model: 'deepseek-reasoner',
+    systemPrompt: ``,
+    modelConfig: {
+      temperature: 0.2,
+      top_p: 0.1,
+      max_tokens: 4000,
+      presence_penalty: 0.1,
+      frequency_penalty: 0.1,
+    },
   },
-  { id: 'claude', name: 'Claude 3' },
-  { id: 'gpt4', name: 'GPT-4' },
+  {
+    id: 'deepseek-v3',
+    name: 'DeepSeek V3 (对话)',
+    apiKey: '',
+    baseUrl: 'https://api.deepseek.com/v1/chat/completions',
+    model: 'deepseek-chat',
+    systemPrompt: '',
+    modelConfig: {
+      temperature: 0.7,
+      top_p: 0.9,
+      max_tokens: 2000,
+    },
+  },
 ];
 
 const Popup = () => {
@@ -57,34 +88,45 @@ const Popup = () => {
     setIsLoading(true);
     setCurrentStreamingMessage('');
 
-    // 如果存在之前的请求，取消它
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // 创建新的 AbortController
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch(selectedProvider.baseUrl, {
+      const messageHistory = messages.map(msg => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.content,
+      }));
+
+      const requestBody = {
+        model: selectedProvider.model,
+        messages: [
+          selectedProvider.systemPrompt ? { role: 'system', content: selectedProvider.systemPrompt } : null,
+          ...messageHistory,
+          { role: 'user', content: inputText },
+        ].filter(Boolean),
+        ...selectedProvider.modelConfig,
+        stream: true,
+      };
+
+      const response = await fetch(`${selectedProvider.baseUrl}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
           Accept: 'text/event-stream',
         },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [{ role: 'user', content: inputText }],
-          temperature: 0.7,
-          max_tokens: 2000,
-          stream: true, // 启用流式响应
-        }),
+        body: JSON.stringify(requestBody),
         signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          `HTTP error! status: ${response.status}${errorData ? `, message: ${errorData.error?.message || JSON.stringify(errorData)}` : ''}`,
+        );
       }
 
       const reader = response.body?.getReader();
@@ -124,18 +166,14 @@ const Popup = () => {
       setMessages(prev => [...prev, { type: 'ai', content: streamedContent }]);
       setCurrentStreamingMessage('');
     } catch (error) {
-      if (error.name === 'AbortError') {
-        console.log('请求被取消');
-      } else {
-        console.error('API 调用错误:', error);
-        setMessages(prev => [
-          ...prev,
-          {
-            type: 'ai',
-            content: '抱歉，发生了错误，请稍后重试。',
-          },
-        ]);
-      }
+      console.error('API 调用错误:', error);
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'ai',
+          content: `错误: ${error.message || '发生了错误，请稍后重试。'}`,
+        },
+      ]);
     } finally {
       setIsLoading(false);
       setInputText('');
@@ -174,51 +212,49 @@ const Popup = () => {
       {/* 设置面板 */}
       {showSettings && (
         <div
-          className={`absolute right-4 top-16 w-72 rounded-lg shadow-lg p-4 ${
-            isLight ? 'bg-white' : 'bg-gray-900'
+          className={`absolute right-0 top-12 w-72 p-4 rounded-lg shadow-lg ${
+            isLight ? 'bg-white' : 'bg-gray-800'
           } border ${isLight ? 'border-gray-200' : 'border-gray-700'}`}>
-          <h2 className={`text-sm font-semibold mb-3 ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>
-            AI Provider Settings
-          </h2>
+          <div className="space-y-4">
+            <div>
+              <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
+                API Key
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                className={`w-full p-2 rounded-md border ${
+                  isLight ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-600 bg-gray-700 text-gray-100'
+                }`}
+              />
+              <button
+                onClick={handleSaveApiKey}
+                className={`mt-2 px-3 py-1 rounded-md ${isLight ? 'bg-blue-500' : 'bg-blue-600'} text-white text-sm`}>
+                保存 API Key
+              </button>
+            </div>
 
-          <div className="mb-4">
-            <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
-              API Key
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              className={`w-full p-2 rounded-md border ${
-                isLight ? 'border-gray-300 bg-white text-gray-900' : 'border-gray-600 bg-gray-800 text-gray-100'
-              } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              placeholder="Enter your API key"
-            />
-            <button
-              onClick={handleSaveApiKey}
-              className={`mt-2 w-full p-2 rounded-md ${
-                isLight ? 'bg-blue-500' : 'bg-blue-600'
-              } text-white hover:opacity-90 transition-opacity`}>
-              Save API Key
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {defaultProviders.map(provider => (
-              <div key={provider.id} className="flex items-center">
-                <input
-                  type="radio"
-                  id={provider.id}
-                  name="ai-provider"
-                  checked={selectedProvider.id === provider.id}
-                  onChange={() => setSelectedProvider(provider)}
-                  className="mr-2"
-                />
-                <label htmlFor={provider.id} className={`text-sm ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
-                  {provider.name}
-                </label>
-              </div>
-            ))}
+            <div className="space-y-2">
+              <label className={`block text-sm font-medium mb-1 ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
+                选择模型
+              </label>
+              {defaultProviders.map(provider => (
+                <div key={provider.id} className="flex items-center">
+                  <input
+                    type="radio"
+                    id={provider.id}
+                    name="ai-provider"
+                    checked={selectedProvider.id === provider.id}
+                    onChange={() => setSelectedProvider(provider)}
+                    className="mr-2"
+                  />
+                  <label htmlFor={provider.id} className={`text-sm ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>
+                    {provider.name}
+                  </label>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
