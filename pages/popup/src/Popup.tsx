@@ -233,6 +233,15 @@ const Popup = () => {
       });
   };
 
+  // 在 handleSend 函数前添加一个重新发送的处理函数
+  const handleResend = (content: string) => {
+    setInputText(content);
+    // 使用 setTimeout 确保 inputText 更新后再发送
+    setTimeout(() => {
+      handleSend();
+    }, 0);
+  };
+
   const handleSend = async () => {
     const currentApiKey = providerApiKeys[selectedProvider.id];
     if (!inputText.trim() || !currentApiKey) return;
@@ -765,18 +774,36 @@ const Popup = () => {
                 </p>
               </div>
               {message.type === 'user' && (
-                <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/30 text-blue-400'
-                  }`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                    />
-                  </svg>
+                <div className="flex flex-col items-center relative">
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      isLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-900/30 text-blue-400'
+                    }`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                      />
+                    </svg>
+                  </div>
+                  {/* 重新发送按钮 - 使用绝对定位 */}
+                  <button
+                    onClick={() => handleResend(message.content)}
+                    className={`w-5 h-5 rounded-md flex items-center justify-center opacity-60 hover:opacity-100 transition-opacity absolute -bottom-6 ${
+                      isLight ? 'text-blue-600' : 'text-blue-400'
+                    }`}
+                    title="重新发送">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </button>
                 </div>
               )}
             </div>
