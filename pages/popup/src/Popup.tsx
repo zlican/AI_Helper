@@ -21,6 +21,7 @@ type AIProvider = {
     frequency_penalty?: number;
   };
   isGemini?: boolean; // 添加标识符
+  noStream?: boolean; // 添加新属性
 };
 
 const defaultProviders: AIProvider[] = [
@@ -97,6 +98,20 @@ const defaultProviders: AIProvider[] = [
       top_p: 0.9,
       max_tokens: 2000,
     },
+  },
+  {
+    id: 'huawei-r1',
+    name: '华为云 R1',
+    baseUrl:
+      'https://infer-modelarts-cn-southwest-2.modelarts-infer.com/v1/infers/952e4f88-ef93-4398-ae8d-af37f63f0d8e/v1/chat/completions',
+    model: 'DeepSeek-R1',
+    systemPrompt: 'You are a helpful assistant.',
+    modelConfig: {
+      temperature: 1.0,
+      top_p: 0.9,
+      max_tokens: 4000,
+    },
+    noStream: true,
   },
 ];
 
@@ -271,85 +286,148 @@ const Popup = () => {
 
         setMessages(prev => [...prev, { type: 'ai', content }]);
       } else {
-        // 原有的其他 API 处理逻辑
         const messageHistory = messages.map(msg => ({
           role: msg.type === 'user' ? 'user' : 'assistant',
           content: msg.content,
         }));
 
-        const requestBody = {
-          model: selectedProvider.model,
-          messages: [
-            selectedProvider.systemPrompt ? { role: 'system', content: selectedProvider.systemPrompt } : null,
-            ...messageHistory,
-            { role: 'user', content: inputText },
-          ].filter(Boolean),
-          ...selectedProvider.modelConfig,
-          stream: true,
-        };
+        let requestBody;
+        if (selectedProvider.id === 'huawei-r1') {
+          // 华为云特定的请求体格式
+          requestBody = {
+            model: 'DeepSeek-R1',
+            messages: [
+              { role: 'system', content: selectedProvider.systemPrompt || '' },
+              ...messageHistory,
+              { role: 'user', content: inputText },
+            ],
+            temperature: selectedProvider.modelConfig?.temperature || 1.0,
+            max_tokens: selectedProvider.modelConfig?.max_tokens || 4000,
+            stream: false,
+          };
+        } else {
+          // 其他提供商的请求体格式保持不变
+          requestBody = {
+            model: selectedProvider.model,
+            messages: [
+              selectedProvider.systemPrompt ? { role: 'system', content: selectedProvider.systemPrompt } : null,
+              ...messageHistory,
+              { role: 'user', content: inputText },
+            ].filter(Boolean),
+            ...selectedProvider.modelConfig,
+            stream: !selectedProvider.noStream,
+          };
+        }
 
         const response = await fetch(`${selectedProvider.baseUrl}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${currentApiKey}`,
-            Accept: 'text/event-stream',
           },
           body: JSON.stringify(requestBody),
           signal: abortControllerRef.current.signal,
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => null);
-          throw new Error(
-            `HTTP error! status: ${response.status}${errorData ? `, message: ${errorData.error?.message || JSON.stringify(errorData)}` : ''}`,
-          );
+          const errorData = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorData}`);
         }
 
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
+        if (selectedProvider.noStream) {
+          // 非流式输出处理
+          const data = await response.text();
+          console.log('原始响应文本:', data); // 先打印原始文本
+          try {
+            const jsonData = JSON.parse(data);
+            let content;
 
-        if (!reader) {
-          throw new Error('Response body is null');
-        }
+            if (selectedProvider.id === 'huawei-r1') {
+              // 华为云标准响应格式处理
+              content =
+                jsonData.choices?.[0]?.message?.content ||
+                jsonData.result?.response ||
+                jsonData.output?.text ||
+                jsonData.answer ||
+                '未找到有效响应内容';
 
-        let streamedContent = '';
+              // 处理多余空行
+              if (content) {
+                // 去除开头的空白和空行，保留末尾格式
+                content = content.replace(/^\s*\n+\s*/, '');
+                content = content.trimEnd();
+              }
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+              // 处理错误码（示例错误响应：{"error_code":"xxx","error_msg":"xxx"}）
+              if (jsonData.error_code) {
+                throw new Error(`[${jsonData.error_code}] ${jsonData.error_msg}`);
+              }
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+              // 处理空内容但存在usage的情况
+              if (!content && jsonData.usage) {
+                content = `请求成功但内容为空，消耗token数：${jsonData.usage.total_tokens}`;
+              }
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') continue;
+              console.log('[华为云调试] 处理后的内容:', content);
+            } else {
+              // 其他提供商的响应格式处理
+              content =
+                jsonData.choices?.[0]?.message?.content ||
+                jsonData.choices?.[0]?.content ||
+                jsonData.response ||
+                '无法解析响应内容';
+            }
 
-              try {
-                const parsed = JSON.parse(data);
-                const content = parsed.choices[0]?.delta?.content || '';
-                streamedContent += content;
-                setCurrentStreamingMessage(streamedContent);
-              } catch (e) {
-                console.error('解析流式数据错误:', e);
+            console.log('API Response:', jsonData); // 添加调试日志
+            setMessages(prev => [...prev, { type: 'ai', content }]);
+          } catch (parseError) {
+            console.error('无效的JSON响应:', data); // 打印非JSON响应
+            throw new Error('API返回了非JSON格式的响应');
+          }
+        } else {
+          // 现有的流式输出处理逻辑
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+
+          if (!reader) {
+            throw new Error('Response body is null');
+          }
+
+          let streamedContent = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  const content = parsed.choices[0]?.delta?.content || '';
+                  streamedContent += content;
+                  setCurrentStreamingMessage(streamedContent);
+                } catch (e) {
+                  console.error('解析流式数据错误:', e);
+                }
               }
             }
           }
-        }
 
-        // 流式响应完成后，添加完整消息
-        setMessages(prev => [...prev, { type: 'ai', content: streamedContent }]);
-        setCurrentStreamingMessage('');
+          // 流式响应完成后，添加完整消息
+          setMessages(prev => [...prev, { type: 'ai', content: streamedContent }]);
+          setCurrentStreamingMessage('');
+        }
       }
-    } catch (error) {
-      // 不在控制台打印中止错误
+    } catch (error: any) {
       if (error.name !== 'AbortError') {
         console.error('API 调用错误:', error);
       }
-
-      // 根据错误类型设置不同的消息
       setMessages(prev => [
         ...prev,
         {
