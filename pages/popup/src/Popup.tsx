@@ -235,14 +235,21 @@ const Popup = () => {
 
   // 修改重新发送的处理函数
   const handleResend = async (content: string, messageIndex: number) => {
+    // 如果当前正在生成回答，先中断它
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
     // 删除当前用户消息和对应的 AI 回复（如果存在）
     setMessages(prev => {
-      // 如果当前消息是用户消息，并且下一条是 AI 回复，则删除两条
-      if (prev[messageIndex].type === 'user' && prev[messageIndex + 1]?.type === 'ai') {
-        return prev.filter((_, index) => index !== messageIndex && index !== messageIndex + 1);
+      // 如果正在流式输出，也需要清除
+      setCurrentStreamingMessage('');
+
+      // 如果当前消息是用户消息，删除它和后面的所有消息（包括可能正在生成的 AI 回复）
+      if (prev[messageIndex].type === 'user') {
+        return prev.filter((_, index) => index < messageIndex);
       }
-      // 否则只删除当前消息
-      return prev.filter((_, index) => index !== messageIndex);
+      return prev;
     });
 
     // 直接发送新消息，不经过 inputText 状态
@@ -253,10 +260,7 @@ const Popup = () => {
     setIsLoading(true);
     setCurrentStreamingMessage('');
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
+    // 创建新的 AbortController
     abortControllerRef.current = new AbortController();
 
     try {
@@ -321,21 +325,111 @@ const Popup = () => {
             max_tokens: selectedProvider.modelConfig?.max_tokens || 4000,
             stream: true,
           };
-        } else {
-          requestBody = {
-            model: selectedProvider.model,
-            messages: [
-              selectedProvider.systemPrompt ? { role: 'system', content: selectedProvider.systemPrompt } : null,
-              ...messageHistory,
-              { role: 'user', content },
-            ].filter(Boolean),
-            ...selectedProvider.modelConfig,
-            stream: !selectedProvider.noStream,
-          };
-        }
 
-        // 复制其余的 API 调用逻辑...
-        // 这里需要复制 handleSend 中剩余的流式处理逻辑
+          const response = await fetch(`${selectedProvider.baseUrl}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${currentApiKey}`,
+              Accept: 'text/event-stream',
+              'X-Request-ID': Date.now().toString(),
+              Connection: 'keep-alive',
+              'Cache-Control': 'no-cache',
+            },
+            body: JSON.stringify(requestBody),
+            signal: abortControllerRef.current.signal,
+          });
+
+          if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorData}`);
+          }
+
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+
+          if (!reader) {
+            throw new Error('Response body is null');
+          }
+
+          let streamedContent = '';
+          let isFirstChunk = true;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  console.log('Stream chunk:', parsed); // 添加调试日志
+
+                  if (parsed.error_code) {
+                    throw new Error(`华为云错误: [${parsed.error_code}] ${parsed.error_msg}`);
+                  }
+
+                  const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
+                  const content = parsed.choices?.[0]?.delta?.content || '';
+                  let hasAddedSeparator = false;
+
+                  // 处理思考内容
+                  if (reasoning) {
+                    const cleanReasoning = reasoning
+                      .replace(/\n+/g, ' ') // 压缩所有换行为空格
+                      .replace(/\s{2,}/g, ' '); // 压缩多个空格
+
+                    if (streamedContent.includes('[思考]')) {
+                      streamedContent = streamedContent.replace(/(\[思考\].*?)(?=\[思考\]|$)/s, `$1${cleanReasoning}`);
+                    } else {
+                      // 首次添加时用单个换行分隔
+                      streamedContent = `[思考]${cleanReasoning}\n${streamedContent}`;
+                    }
+                  }
+
+                  // 处理正式回答
+                  if (content) {
+                    const cleanContent = content
+                      .replace(/[\n\r]+/g, '') // 彻底移除所有换行符
+                      .replace(/\s{2,}/g, ' '); // 压缩多个空格
+
+                    // 仅在首次添加回答时插入分隔符
+                    if (streamedContent.includes('[思考]') && !hasAddedSeparator) {
+                      streamedContent += '\n\n';
+                      hasAddedSeparator = true;
+                    }
+                    streamedContent += cleanContent;
+                  }
+
+                  // 处理首块空行
+                  if (isFirstChunk && content) {
+                    content = content.replace(/^[\s\n\r]+/, '');
+                    isFirstChunk = false;
+                  }
+
+                  // 最终格式处理
+                  streamedContent = streamedContent
+                    .replace(/(\n{3,})/g, '\n\n') // 压缩多余空行
+                    .trim();
+
+                  setCurrentStreamingMessage(streamedContent);
+                } catch (e) {
+                  console.error('解析流式数据错误:', e, 'Raw data:', data);
+                }
+              }
+            }
+          }
+
+          // 流式响应完成后，添加完整消息
+          setMessages(prev => [...prev, { type: 'ai', content: streamedContent }]);
+          setCurrentStreamingMessage('');
+        }
       }
     } catch (error: any) {
       if (error.name !== 'AbortError') {
@@ -873,13 +967,16 @@ const Popup = () => {
                 }`}>
                 {message.content.includes('[思考]') && (
                   <div className="mb-3 space-y-2">
-                    <div className="text-gray-500 text-sm space-y-1">
+                    <div className={`text-sm space-y-1 ${isLight ? 'text-gray-500' : 'text-gray-300'}`}>
                       <p className="font-medium">思考过程：</p>
-                      <p className="italic border-l-2 border-gray-300 pl-2">
+                      <p
+                        className={`italic border-l-2 pl-2 ${
+                          isLight ? 'border-gray-300 text-gray-500' : 'border-gray-600 text-gray-300'
+                        }`}>
                         {message.content.match(/\[思考\](.*?)(?=\n\n|$)/s)?.[1]}
                       </p>
                     </div>
-                    <div className="border-t border-gray-200"></div>
+                    <div className={`border-t ${isLight ? 'border-gray-200' : 'border-gray-600'}`}></div>
                   </div>
                 )}
                 <p className="text-sm leading-relaxed whitespace-normal">
