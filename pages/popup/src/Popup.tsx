@@ -423,16 +423,47 @@ const Popup = () => {
                       throw new Error(`华为云错误: [${parsed.error_code}] ${parsed.error_msg}`);
                     }
 
-                    content =
-                      parsed.choices?.[0]?.delta?.content ||
-                      parsed.choices?.[0]?.message?.content ||
-                      parsed.choices?.[0]?.content ||
-                      '';
+                    const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
+                    const content = parsed.choices?.[0]?.delta?.content || '';
+                    let hasAddedSeparator = false;
 
-                    if (!content && parsed.usage) {
-                      console.log('收到usage但无内容:', parsed.usage);
-                      continue; // 跳过这个chunk
+                    // 处理思考内容
+                    if (reasoning) {
+                      const cleanReasoning = reasoning
+                        .replace(/\n+/g, ' ') // 压缩所有换行为空格
+                        .replace(/\s{2,}/g, ' '); // 压缩多个空格
+
+                      if (streamedContent.includes('[思考]')) {
+                        streamedContent = streamedContent.replace(
+                          /(\[思考\].*?)(?=\[思考\]|$)/s,
+                          `$1${cleanReasoning}`,
+                        );
+                      } else {
+                        // 首次添加时用单个换行分隔
+                        streamedContent = `[思考]${cleanReasoning}\n${streamedContent}`;
+                      }
                     }
+
+                    // 处理正式回答（完全去除换行）
+                    if (content) {
+                      const cleanContent = content
+                        .replace(/[\n\r]+/g, '') // 彻底移除所有换行符
+                        .replace(/\s{2,}/g, ' '); // 压缩多个空格
+
+                      // 仅在首次添加回答时插入分隔符
+                      if (streamedContent.includes('[思考]') && !hasAddedSeparator) {
+                        streamedContent += '\n\n';
+                        hasAddedSeparator = true;
+                      }
+                      streamedContent += cleanContent;
+                    }
+
+                    // 最终格式处理
+                    streamedContent = streamedContent
+                      .replace(/(\n{3,})/g, '\n\n') // 压缩多余空行
+                      .trim();
+
+                    setCurrentStreamingMessage(streamedContent);
                   } else {
                     content = parsed.choices[0]?.delta?.content || '';
                   }
@@ -718,7 +749,20 @@ const Popup = () => {
                       ? 'bg-gray-200 text-gray-900 rounded-bl-none'
                       : 'bg-gray-700 text-gray-100 rounded-bl-none'
                 }`}>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                {message.content.includes('[思考]') && (
+                  <div className="mb-3 space-y-2">
+                    <div className="text-gray-500 text-sm space-y-1">
+                      <p className="font-medium">思考过程：</p>
+                      <p className="italic border-l-2 border-gray-300 pl-2">
+                        {message.content.match(/\[思考\](.*?)(?=\n\n|$)/s)?.[1]}
+                      </p>
+                    </div>
+                    <div className="border-t border-gray-200"></div>
+                  </div>
+                )}
+                <p className="text-sm leading-relaxed whitespace-normal">
+                  {message.content.replace(/\[思考\].*?(\n\n|$)/s, '').trim()}
+                </p>
               </div>
               {message.type === 'user' && (
                 <div
