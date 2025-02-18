@@ -354,6 +354,7 @@ const Popup = () => {
 
           let streamedContent = '';
           let isFirstChunk = true;
+          let hasAddedSeparator = false;
 
           while (true) {
             const { done, value } = await reader.read();
@@ -369,56 +370,67 @@ const Popup = () => {
 
                 try {
                   const parsed = JSON.parse(data);
-                  console.log('Stream chunk:', parsed); // 添加调试日志
-
                   if (parsed.error_code) {
                     throw new Error(`华为云错误: [${parsed.error_code}] ${parsed.error_msg}`);
                   }
 
+                  // 提取内容和思考内容
                   const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                  const content = parsed.choices?.[0]?.delta?.content || '';
-                  let hasAddedSeparator = false;
+                  const contentChunk = parsed.choices?.[0]?.delta?.content || '';
 
                   // 处理思考内容
                   if (reasoning) {
                     const cleanReasoning = reasoning
-                      .replace(/\n+/g, ' ') // 压缩所有换行为空格
+                      .replace(/\n+/g, ' ') // 压缩换行为空格
                       .replace(/\s{2,}/g, ' '); // 压缩多个空格
 
                     if (streamedContent.includes('[思考]')) {
-                      streamedContent = streamedContent.replace(/(\[思考\].*?)(?=\[思考\]|$)/s, `$1${cleanReasoning}`);
+                      // 在已有思考内容后追加
+                      streamedContent = streamedContent.replace(
+                        /(\[思考\])([\s\S]*?)(?=\n\n|$)/,
+                        `$1$2${cleanReasoning}`,
+                      );
                     } else {
-                      // 首次添加时用单个换行分隔
+                      // 首次添加思考内容
                       streamedContent = `[思考]${cleanReasoning}\n${streamedContent}`;
                     }
                   }
 
-                  // 处理正式回答
-                  if (content) {
-                    const cleanContent = content
-                      .replace(/[\n\r]+/g, '') // 彻底移除所有换行符
+                  // 处理正式回答内容
+                  if (contentChunk) {
+                    const cleanContent = contentChunk
+                      .replace(/[\n\r]+/g, '') // 彻底移除换行
                       .replace(/\s{2,}/g, ' '); // 压缩多个空格
 
-                    // 仅在首次添加回答时插入分隔符
+                    // 添加思考与回答的分隔符
                     if (streamedContent.includes('[思考]') && !hasAddedSeparator) {
+                      // 确保思考内容以换行结束
+                      if (!streamedContent.endsWith('\n')) {
+                        streamedContent += '\n';
+                      }
                       streamedContent += '\n\n';
                       hasAddedSeparator = true;
                     }
+
+                    // 直接追加内容（已处理换行）
                     streamedContent += cleanContent;
                   }
 
-                  // 处理首块空行
-                  if (isFirstChunk && content) {
-                    content = content.replace(/^[\s\n\r]+/, '');
+                  // 处理首块空行（使用新变量避免修改const）
+                  let processedContent = streamedContent;
+                  if (isFirstChunk && contentChunk) {
+                    processedContent = processedContent.replace(/^[\s\n\r]+/, '');
                     isFirstChunk = false;
                   }
 
                   // 最终格式处理
-                  streamedContent = streamedContent
-                    .replace(/(\n{3,})/g, '\n\n') // 压缩多余空行
+                  processedContent = processedContent
+                    .replace(/(\n{4,})/g, '\n\n') // 压缩多余空行但保留两个换行
+                    .replace(/(\S)\n\n(\S)/g, '$1\n\n$2') // 保护内容间的两个换行
                     .trim();
 
-                  setCurrentStreamingMessage(streamedContent);
+                  setCurrentStreamingMessage(processedContent);
+                  streamedContent = processedContent; // 更新流式内容
                 } catch (e) {
                   console.error('解析流式数据错误:', e, 'Raw data:', data);
                 }
@@ -605,7 +617,11 @@ const Popup = () => {
             throw new Error('API返回了非JSON格式的响应');
           }
         } else {
-          // 现有的流式输出处理逻辑
+          // 流式处理逻辑更新：
+          let streamedContent = '';
+          let hasAddedSeparator = false;
+          let isFirstContent = true;
+
           const reader = response.body?.getReader();
           const decoder = new TextDecoder();
 
@@ -613,14 +629,11 @@ const Popup = () => {
             throw new Error('Response body is null');
           }
 
-          let streamedContent = '';
-          let isFirstChunk = true;
-
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
+            const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split('\n');
 
             for (const line of lines) {
@@ -630,70 +643,53 @@ const Popup = () => {
 
                 try {
                   const parsed = JSON.parse(data);
-                  console.log('Stream chunk:', parsed); // 添加调试日志
-
-                  let content = '';
-                  if (selectedProvider.id === 'huawei-r1') {
-                    // 华为云的流式响应格式处理
-                    if (parsed.error_code) {
-                      throw new Error(`华为云错误: [${parsed.error_code}] ${parsed.error_msg}`);
-                    }
-
-                    const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
-                    const content = parsed.choices?.[0]?.delta?.content || '';
-                    let hasAddedSeparator = false;
-
-                    // 处理思考内容
-                    if (reasoning) {
-                      const cleanReasoning = reasoning
-                        .replace(/\n+/g, ' ') // 压缩所有换行为空格
-                        .replace(/\s{2,}/g, ' '); // 压缩多个空格
-
-                      if (streamedContent.includes('[思考]')) {
-                        streamedContent = streamedContent.replace(
-                          /(\[思考\].*?)(?=\[思考\]|$)/s,
-                          `$1${cleanReasoning}`,
-                        );
-                      } else {
-                        // 首次添加时用单个换行分隔
-                        streamedContent = `[思考]${cleanReasoning}\n${streamedContent}`;
-                      }
-                    }
-
-                    // 处理正式回答（完全去除换行）
-                    if (content) {
-                      const cleanContent = content
-                        .replace(/[\n\r]+/g, '') // 彻底移除所有换行符
-                        .replace(/\s{2,}/g, ' '); // 压缩多个空格
-
-                      // 仅在首次添加回答时插入分隔符
-                      if (streamedContent.includes('[思考]') && !hasAddedSeparator) {
-                        streamedContent += '\n\n';
-                        hasAddedSeparator = true;
-                      }
-                      streamedContent += cleanContent;
-                    }
-
-                    // 最终格式处理
-                    streamedContent = streamedContent
-                      .replace(/(\n{3,})/g, '\n\n') // 压缩多余空行
-                      .trim();
-
-                    setCurrentStreamingMessage(streamedContent);
-                  } else {
-                    content = parsed.choices[0]?.delta?.content || '';
+                  if (parsed.error_code) {
+                    throw new Error(`华为云错误: [${parsed.error_code}] ${parsed.error_msg}`);
                   }
 
-                  // 处理首块空行
-                  if (isFirstChunk && content) {
-                    content = content.replace(/^[\s\n\r]+/, '');
-                    isFirstChunk = false;
+                  // 分离思考内容和正式内容
+                  const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
+                  const contentChunk = parsed.choices?.[0]?.delta?.content || '';
+
+                  // 实时拼接思考内容（保留自然换行）
+                  if (reasoning) {
+                    if (!streamedContent.includes('[思考]')) {
+                      streamedContent = `[思考]${reasoning}`;
+                    } else {
+                      // 在已有思考内容后追加，保留换行结构
+                      streamedContent = streamedContent.replace(/(\[思考\])([\s\S]*?)(?=\n\n|$)/, `$1$2${reasoning}`);
+                    }
                   }
 
-                  streamedContent += content;
+                  // 实时拼接正式内容（完全去除换行）
+                  if (contentChunk) {
+                    let cleanContent = contentChunk
+                      .replace(/[\n\r]+/g, '') // 彻底移除换行
+                      .replace(/\s{2,}/g, ' '); // 压缩多个空格
+
+                    // 首次内容处理
+                    if (isFirstContent) {
+                      cleanContent = cleanContent.replace(/^\s+/, '');
+                      isFirstContent = false;
+                    }
+
+                    // 添加思考与回答的分隔符
+                    if (streamedContent.includes('[思考]') && !hasAddedSeparator) {
+                      // 确保思考内容以换行结束
+                      if (!streamedContent.endsWith('\n')) {
+                        streamedContent += '\n';
+                      }
+                      streamedContent += '\n\n';
+                      hasAddedSeparator = true;
+                    }
+
+                    streamedContent += cleanContent;
+                  }
+
+                  // 实时更新显示内容
                   setCurrentStreamingMessage(streamedContent);
                 } catch (e) {
-                  console.error('解析流式数据错误:', e, 'Raw data:', data);
+                  console.error('解析流式数据错误:', e);
                 }
               }
             }
@@ -969,19 +965,18 @@ const Popup = () => {
                   <div className="mb-3 space-y-2">
                     <div className={`text-sm space-y-1 ${isLight ? 'text-gray-500' : 'text-gray-300'}`}>
                       <p className="font-medium">思考过程：</p>
-                      <p
-                        className={`italic border-l-2 pl-2 ${
-                          isLight ? 'border-gray-300 text-gray-500' : 'border-gray-600 text-gray-300'
-                        }`}>
-                        {message.content.match(/\[思考\](.*?)(?=\n\n|$)/s)?.[1]}
-                      </p>
+                      <div className={`whitespace-pre-wrap italic ${isLight ? 'text-gray-600' : 'text-gray-300'}`}>
+                        {message.content.includes('[思考]')
+                          ? message.content.split(/\[思考\]/)[1]?.split('\n\n')[0] || ''
+                          : ''}
+                      </div>
                     </div>
                     <div className={`border-t ${isLight ? 'border-gray-200' : 'border-gray-600'}`}></div>
                   </div>
                 )}
-                <p className="text-sm leading-relaxed whitespace-normal">
-                  {message.content.replace(/\[思考\].*?(\n\n|$)/s, '').trim()}
-                </p>
+                <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {message.content.split('\n\n').slice(1).join('\n\n') || message.content}
+                </div>
               </div>
               {message.type === 'user' && (
                 <div className="flex flex-col items-center relative">
