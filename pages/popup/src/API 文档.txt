@@ -1,0 +1,2 @@
+华为云 ： https://support.huaweicloud.com/modelarts/index.html
+DeepSeek 官方 ：https://api-docs.deepseek.com/

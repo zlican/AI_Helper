@@ -331,18 +331,32 @@ const Popup = () => {
         setCurrentStreamingMessage('');
       }
     } catch (error) {
-      console.error('API 调用错误:', error);
+      // 不在控制台打印中止错误
+      if (error.name !== 'AbortError') {
+        console.error('API 调用错误:', error);
+      }
+
+      // 根据错误类型设置不同的消息
       setMessages(prev => [
         ...prev,
         {
           type: 'ai',
-          content: `错误: ${error.message || '发生了错误，请稍后重试。'}`,
+          content: error.name === 'AbortError' ? '已取消生成' : `错误: ${error.message || '发生了错误，请稍后重试。'}`,
         },
       ]);
     } finally {
       setIsLoading(false);
       setInputText('');
       abortControllerRef.current = null;
+    }
+  };
+
+  // 修改取消按钮的处理函数
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsLoading(false);
+      setCurrentStreamingMessage('');
     }
   };
 
@@ -477,7 +491,8 @@ const Popup = () => {
                       : isLight
                         ? 'hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5'
                         : 'hover:bg-gray-700/50 hover:shadow-md dark:hover:shadow-gray-700/40 hover:-translate-y-0.5'
-                  }`}>
+                  }`}
+                  onClick={() => handleProviderChange(provider)}>
                   <div className="flex items-center justify-between w-full gap-2 px-1">
                     <div className="flex items-center gap-2 min-w-[120px]">
                       <input
@@ -486,6 +501,7 @@ const Popup = () => {
                         name="ai-provider"
                         checked={selectedProvider.id === provider.id}
                         onChange={() => handleProviderChange(provider)}
+                        onClick={e => e.stopPropagation()}
                         className="w-4 h-4 text-blue-500 focus:ring-blue-400"
                       />
                       <label
@@ -500,6 +516,7 @@ const Popup = () => {
                       type="password"
                       value={providerApiKeys[provider.id] || ''}
                       onChange={e => handleSaveApiKey(provider.id, e.target.value)}
+                      onClick={e => e.stopPropagation()}
                       placeholder="API Key"
                       className={`w-[90px] text-sm px-3 py-1.5 rounded-lg border transition-colors mr-0.5 overflow-hidden ${
                         isLight
@@ -638,25 +655,42 @@ const Popup = () => {
 
       {/* 输入区域 - 固定在底部 */}
       <div
-        className={`shrink-0 border-t ${
-          isLight ? 'border-gray-200/80 bg-white' : 'border-gray-700/80 bg-gray-800' // 修改背景色
-        }`}>
-        <div
-          className={`flex items-center gap-3 p-4 ${
-            isLight ? 'bg-white' : 'bg-gray-800' // 内部容器也设置对应的背景色
-          }`}>
-          <input
-            type="text"
-            value={inputText}
-            onChange={e => setInputText(e.target.value)}
-            onKeyPress={e => e.key === 'Enter' && handleSend()}
-            placeholder="输入消息..."
-            className={`flex-1 px-4 py-2 rounded-xl border text-sm transition-all ${
-              isLight
-                ? 'border-gray-200 bg-white text-gray-900 focus:border-blue-500'
-                : 'border-gray-600 bg-gray-700/50 text-gray-100 focus:border-blue-400'
-            } focus:outline-none focus:ring-2 focus:ring-blue-500/40`}
-          />
+        className={`shrink-0 border-t ${isLight ? 'border-gray-200/80 bg-white' : 'border-gray-700/80 bg-gray-800'}`}>
+        <div className={`flex items-center gap-3 p-4 ${isLight ? 'bg-white' : 'bg-gray-800'}`}>
+          <div className="flex-1 relative">
+            {/* 取消按钮 - 移到输入框上方 */}
+            {(isLoading || currentStreamingMessage) && (
+              <button
+                onClick={handleCancel}
+                className={`absolute -top-10 right-0 p-1.5 rounded-lg transition-colors shadow-sm ${
+                  isLight ? 'bg-white hover:bg-gray-100' : 'bg-gray-700 hover:bg-gray-600'
+                }`}
+                title="取消对话">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-xs ${isLight ? 'text-gray-500' : 'text-gray-300'}`}>取消生成</span>
+                  <svg
+                    className={`w-3.5 h-3.5 ${isLight ? 'text-gray-500' : 'text-gray-300'}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+              </button>
+            )}
+            <input
+              type="text"
+              value={inputText}
+              onChange={e => setInputText(e.target.value)}
+              onKeyPress={e => e.key === 'Enter' && handleSend()}
+              placeholder="输入消息..."
+              className={`w-full px-4 py-2 rounded-xl border text-sm transition-all ${
+                isLight
+                  ? 'border-gray-200 bg-white text-gray-900 focus:border-blue-500'
+                  : 'border-gray-600 bg-gray-700/50 text-gray-100 focus:border-blue-400'
+              } focus:outline-none focus:ring-2 focus:ring-blue-500/40`}
+            />
+          </div>
           <button
             onClick={handleSend}
             disabled={!inputText.trim() || isLoading}
