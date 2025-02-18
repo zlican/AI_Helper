@@ -128,6 +128,19 @@ const Popup = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const categorizedProviders = categorizeProviders(defaultProviders);
   const [showCopyTip, setShowCopyTip] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // 添加滚动到底部的函数
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+
+  // 监听消息变化，自动滚动
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, currentStreamingMessage]);
 
   // 从 storage 加载所有配置
   useEffect(() => {
@@ -533,7 +546,7 @@ const Popup = () => {
       )}
 
       {/* 聊天区域 - 更新背景色 */}
-      <div className={`flex-1 overflow-y-auto ${isLight ? 'bg-white' : 'bg-gray-900'}`}>
+      <div className={`flex-1 overflow-y-auto ${isLight ? 'bg-white' : 'bg-gray-900'}`} ref={chatContainerRef}>
         <div
           className={`h-full px-4 py-4 space-y-4 ${
             isLight ? 'bg-white' : 'bg-gray-900' // 白天模式使用纯白背景
