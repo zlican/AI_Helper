@@ -111,7 +111,7 @@ const defaultProviders: AIProvider[] = [
       top_p: 0.9,
       max_tokens: 4000,
     },
-    noStream: true,
+    noStream: false,
   },
 ];
 
@@ -303,7 +303,7 @@ const Popup = () => {
             ],
             temperature: selectedProvider.modelConfig?.temperature || 1.0,
             max_tokens: selectedProvider.modelConfig?.max_tokens || 4000,
-            stream: false,
+            stream: true,
           };
         } else {
           // 其他提供商的请求体格式保持不变
@@ -324,6 +324,10 @@ const Popup = () => {
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${currentApiKey}`,
+            Accept: 'text/event-stream',
+            'X-Request-ID': Date.now().toString(),
+            Connection: 'keep-alive',
+            'Cache-Control': 'no-cache',
           },
           body: JSON.stringify(requestBody),
           signal: abortControllerRef.current.signal,
@@ -394,6 +398,7 @@ const Popup = () => {
           }
 
           let streamedContent = '';
+          let isFirstChunk = true;
 
           while (true) {
             const { done, value } = await reader.read();
@@ -409,11 +414,39 @@ const Popup = () => {
 
                 try {
                   const parsed = JSON.parse(data);
-                  const content = parsed.choices[0]?.delta?.content || '';
+                  console.log('Stream chunk:', parsed); // 添加调试日志
+
+                  let content = '';
+                  if (selectedProvider.id === 'huawei-r1') {
+                    // 华为云的流式响应格式处理
+                    if (parsed.error_code) {
+                      throw new Error(`华为云错误: [${parsed.error_code}] ${parsed.error_msg}`);
+                    }
+
+                    content =
+                      parsed.choices?.[0]?.delta?.content ||
+                      parsed.choices?.[0]?.message?.content ||
+                      parsed.choices?.[0]?.content ||
+                      '';
+
+                    if (!content && parsed.usage) {
+                      console.log('收到usage但无内容:', parsed.usage);
+                      continue; // 跳过这个chunk
+                    }
+                  } else {
+                    content = parsed.choices[0]?.delta?.content || '';
+                  }
+
+                  // 处理首块空行
+                  if (isFirstChunk && content) {
+                    content = content.replace(/^[\s\n\r]+/, '');
+                    isFirstChunk = false;
+                  }
+
                   streamedContent += content;
                   setCurrentStreamingMessage(streamedContent);
                 } catch (e) {
-                  console.error('解析流式数据错误:', e);
+                  console.error('解析流式数据错误:', e, 'Raw data:', data);
                 }
               }
             }
